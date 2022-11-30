@@ -1,126 +1,11 @@
--- working lua base64 codec (c) 2006-2008 by Alex Kloss
--- compatible with lua 5.1
--- http://www.it-rfc.de
--- licensed under the terms of the LGPL2
-
-local module = {}
-
--- bitshift functions (<<, >> equivalent)
--- shift left
-local function lsh(value, shift)
-	return (value * (2 ^ shift)) % 256
-end
-
--- shift right
-local function rsh(value, shift)
-	return math.floor(value / 2 ^ shift) % 256
-end
-
--- return single bit (for OR)
-local function bit(x, b)
-	return (x % 2 ^ b - x % 2 ^ (b - 1) > 0)
-end
-
--- logic OR for number values
-local function lor(x, y)
-	local result = 0
-	for p = 1, 8 do
-		result = result + (((bit(x, p) or bit(y, p)) == true) and 2 ^ (p - 1) or 0)
-	end
-	return result
-end
-
--- encryption table
-local base64chars = {
-	[0] = "A",
-	[1] = "B",
-	[2] = "C",
-	[3] = "D",
-	[4] = "E",
-	[5] = "F",
-	[6] = "G",
-	[7] = "H",
-	[8] = "I",
-	[9] = "J",
-	[10] = "K",
-	[11] = "L",
-	[12] = "M",
-	[13] = "N",
-	[14] = "O",
-	[15] = "P",
-	[16] = "Q",
-	[17] = "R",
-	[18] = "S",
-	[19] = "T",
-	[20] = "U",
-	[21] = "V",
-	[22] = "W",
-	[23] = "X",
-	[24] = "Y",
-	[25] = "Z",
-	[26] = "a",
-	[27] = "b",
-	[28] = "c",
-	[29] = "d",
-	[30] = "e",
-	[31] = "f",
-	[32] = "g",
-	[33] = "h",
-	[34] = "i",
-	[35] = "j",
-	[36] = "k",
-	[37] = "l",
-	[38] = "m",
-	[39] = "n",
-	[40] = "o",
-	[41] = "p",
-	[42] = "q",
-	[43] = "r",
-	[44] = "s",
-	[45] = "t",
-	[46] = "u",
-	[47] = "v",
-	[48] = "w",
-	[49] = "x",
-	[50] = "y",
-	[51] = "z",
-	[52] = "0",
-	[53] = "1",
-	[54] = "2",
-	[55] = "3",
-	[56] = "4",
-	[57] = "5",
-	[58] = "6",
-	[59] = "7",
-	[60] = "8",
-	[61] = "9",
-	[62] = "-",
-	[63] = "_",
-}
-
--- function encode
--- encodes input string to base64.
-local function enc(data)
-	local bytes = {}
-	local result = ""
-	for spos = 0, string.len(data) - 1, 3 do
-		for byte = 1, 3 do
-			bytes[byte] = string.byte(string.sub(data, (spos + byte))) or 0
-		end
-		result = string.format(
-			"%s%s%s%s%s",
-			result,
-			base64chars[rsh(bytes[1], 2)],
-			base64chars[lor(lsh((bytes[1] % 4), 4), rsh(bytes[2], 4))] or "=",
-			((#data - spos) > 1) and base64chars[lor(lsh(bytes[2] % 16, 2), rsh(bytes[3], 6))] or "=",
-			((#data - spos) > 2) and base64chars[(bytes[3] % 64)] or "="
-		)
-	end
-	return result
-end
+-- https://github.com/taybart/b64.nvim/blob/main/lua/b64.lua
+--
+local encoding = {}
+-- http://lua-users.org/wiki/BaseSixtyFour
+local dic = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 -- decryption table
-local base64bytes = {
+encoding.base64bytes = {
 	["A"] = 0,
 	["B"] = 1,
 	["C"] = 2,
@@ -187,45 +72,52 @@ local base64bytes = {
 	["_"] = 63,
 	["="] = nil,
 }
-
-module.base64bytes = base64bytes
-
--- function decode
--- decode base64 input to string
-local function dec(data)
-	local chars = {}
-	local result = ""
-	for dpos = 0, string.len(data) - 1, 4 do
-		for char = 1, 4 do
-			chars[char] = base64bytes[(string.sub(data, (dpos + char), (dpos + char)) or "=")]
-		end
-		result = string.format(
-			"%s%s%s%s",
-			result,
-			string.char(lor(lsh(chars[1], 2), rsh(chars[2], 4))),
-			(chars[3] ~= nil) and string.char(lor(lsh(chars[2], 4), rsh(chars[3], 2))) or "",
-			(chars[4] ~= nil) and string.char(lor(lsh(chars[3], 6) % 192, chars[4])) or ""
-		)
-	end
-	return result
+-- encoding
+function encoding.enc(data)
+	return (
+		(data:gsub(".", function(x)
+			local r, b = "", x:byte()
+			for i = 8, 1, -1 do
+				r = r .. (b % 2 ^ i - b % 2 ^ (i - 1) > 0 and "1" or "0")
+			end
+			return r
+		end) .. "0000"):gsub("%d%d%d?%d?%d?%d?", function(x)
+			if #x < 6 then
+				return ""
+			end
+			local c = 0
+			for i = 1, 6 do
+				c = c + (x:sub(i, i) == "1" and 2 ^ (6 - i) or 0)
+			end
+			return dic:sub(c + 1, c + 1)
+		end) .. ({ "", "==", "=" })[#data % 3 + 1]
+	)
 end
 
-function module.encode(content)
-	local status, ret = pcall(enc, content)
-	if not status then
-		error("failed to encode content: " .. ret)
-		return ""
-	end
-	return ret
+-- decoding
+function encoding.dec(data)
+	data = string.gsub(data, "[^" .. dic .. "=]", "")
+	return (
+		data:gsub(".", function(x)
+			if x == "=" then
+				return ""
+			end
+			local r, f = "", (dic:find(x) - 1)
+			for i = 6, 1, -1 do
+				r = r .. (f % 2 ^ i - f % 2 ^ (i - 1) > 0 and "1" or "0")
+			end
+			return r
+		end):gsub("%d%d%d?%d?%d?%d?%d?%d?", function(x)
+			if #x ~= 8 then
+				return ""
+			end
+			local c = 0
+			for i = 1, 8 do
+				c = c + (x:sub(i, i) == "1" and 2 ^ (8 - i) or 0)
+			end
+			return string.char(c)
+		end)
+	)
 end
 
-function module.decode(content)
-	local status, ret = pcall(dec, content)
-	if not status then
-		error("failed to decode content: " .. ret)
-		return ""
-	end
-	return ret
-end
-
-return module
+return encoding
